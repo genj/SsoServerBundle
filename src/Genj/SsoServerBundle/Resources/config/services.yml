@@ -1,0 +1,7 @@
+services:
+    genj_sso_server.server:
+        class: Genj\SsoServerBundle\Sso\Server
+        scope: request
+        arguments:
+            - @request
+            - @webservice_user.login.form.handler
