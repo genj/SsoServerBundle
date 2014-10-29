@@ -20,9 +20,9 @@ class GenjSsoServerExtension extends Extension
      */
     public function load(array $configs, ContainerBuilder $container)
     {
-//        $configuration          = new Configuration();
-//        $processedConfiguration = $this->processConfiguration($configuration, $configs);
-//        $container->setParameter('genj_sso_client.kiosk_identifier', $processedConfiguration['kiosk_identifier']);
+        $configuration          = new Configuration();
+        $processedConfiguration = $this->processConfiguration($configuration, $configs);
+        $container->setParameter('genj_sso_server', $processedConfiguration);
 
         $loader = new Loader\YamlFileLoader($container, new FileLocator(__DIR__.'/../Resources/config'));
         $loader->load('services.yml');

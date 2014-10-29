@@ -2,11 +2,15 @@
 
 namespace Genj\SsoServerBundle\Sso;
 
+use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\NativeSessionStorage;
 use Symfony\Component\HttpFoundation\Session\Storage\PhpBridgeSessionStorage;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
+use Webservice\UserBundle\Entity\UserRepository;
 use Webservice\UserBundle\Form\Handler\LoginFormHandler;
 
 /**
@@ -36,27 +40,7 @@ class Server
      *
      * @var array
      */
-    protected static $brokers = array(
-        'ALEX' => array('secret'=>"abc123"),
-        'BINCK' => array('secret'=>"xyz789"),
-        'UZZA' => array('secret'=>"rino222"),
-        'AJAX' => array('secret'=>"amsterdam"),
-        'LYNX' => array('secret'=>"klm345"),
-    );
-
-    /**
-     * Information of the users.
-     * This should be data in a database.
-     *
-     * @var array
-     */
-    protected static $users = array(
-        'jan' => array('password'=>"jan1", 'fullname'=>"Jan Smit", 'email'=>"jan@smit.nl"),
-        'peter' => array('password'=>"peter1", 'fullname'=>"Peter de Vries", 'email'=>"peter.r.de-vries@sbs.nl"),
-        'bart' => array('password'=>"bart1", 'fullname'=>"Bart de Graaf", 'email'=>"graaf@bnn.info"),
-        'henk' => array('password'=>"henk1", 'fullname'=>"Henk Westbroek", 'email'=>"henk@amsterdam.com"),
-        'nico.kaag@genj.nl' => array('password'=>"Tester", 'fullname'=>"Nico Kaag", 'email'=>"nico.kaag@genj.nl")
-    );
+    protected $brokers;
 
     /**
      * The current broker
@@ -80,29 +64,39 @@ class Server
     protected $loginFormHandler;
 
     /**
+     * @var UserRepository
+     */
+    protected $userRepository;
+
+    /**
      * Class constructor
      *
-     * @param Request $request
-     * @param LoginFormHandler $loginFormHandler
+     * @param Request           $request
+     * @param LoginFormHandler  $loginFormHandler
+     * @param UserRepository    $userRepository
      */
-    public function __construct(Request $request, LoginFormHandler $loginFormHandler)
+    public function __construct(Request $request, LoginFormHandler $loginFormHandler, UserRepository $userRepository, array $config)
     {
-        $this->request = $request;
-        $this->session = $request->getSession();
+        $this->request          = $request;
+        $this->session          = $request->getSession();
 
+        $this->userRepository   = $userRepository;
         $this->loginFormHandler = $loginFormHandler;
 
-//        if (!function_exists('symlink')) {
-            $this->linksPath = '/webservers/webservice/app/var/links/';
-//        }
+        $this->setConfig($config);
+
+        if (!function_exists('symlink')) {
+            $this->linksPath = sys_get_temp_dir();
+        }
     }
 
     /**
      * Start session and protect against session hijacking
+     *
+     * @return null
      */
     protected function sessionStart()
     {
-        $this->session->getMetadataBag()->getStorageKey();
         if ($this->started) {
             return;
         }
@@ -111,7 +105,6 @@ class Server
         // Broker session
         $matches = null;
 
-//        var_dump($this->session->getName());
 
         if ($this->request->get($this->session->getName())
             && preg_match('/^SSO-(\w*+)-(\w*+)-([a-z0-9]*+)$/', $this->request->get($this->session->getName()), $matches)) {
@@ -120,7 +113,7 @@ class Server
             if (isset($this->linksPath) && file_exists($this->linksPath . $sid)) {
                 $this->session->setId(file_get_contents($this->linksPath . $sid));
                 $this->session->migrate();
-//                $this->session->set($this->session->getName(), "");
+
                 setcookie($this->session->getName(), "", 1);
             } else {
                 $this->session->start();
@@ -128,12 +121,16 @@ class Server
 
             if (!$this->session->get('client_addr')) {
                 $this->session->invalidate();
-                $this->fail("Not attached");
+                $response = $this->fail("Not attached");
+
+                return $response;
             }
 
             if ($this->generateSessionId($matches[1], $matches[2], $this->session->get('client_addr')) != $sid) {
                 $this->session->invalidate();
-                $this->fail("Invalid session id");
+                $response = $this->fail("Invalid session id");
+
+                return $response;
             }
 
             $this->broker = $matches[1];
@@ -158,13 +155,13 @@ class Server
      *
      * @param string $broker
      * @param string $token
-     * @param null $clientAddr
+     * @param null   $clientAddr
      *
      * @return null|string
      */
     protected function generateSessionId($broker, $token, $clientAddr=null)
     {
-        if (!isset(self::$brokers[$broker])) {
+        if (!isset($this->brokers[$broker])) {
             return null;
         }
 
@@ -172,7 +169,7 @@ class Server
             $clientAddr = $this->request->getClientIp();
         }
 
-        return "SSO-{$broker}-{$token}-" . md5('session' . $token . $clientAddr . self::$brokers[$broker]['secret']);
+        return "SSO-{$broker}-{$token}-" . md5('session' . $token . $clientAddr . $this->brokers[$broker]['secret']);
     }
 
     /**
@@ -185,68 +182,91 @@ class Server
      */
     protected function generateAttachChecksum($broker, $token)
     {
-        if (!isset(self::$brokers[$broker])) {
+        if (!isset($this->brokers[$broker])) {
             return null;
         }
 
-        return md5('attach' . $token . $this->request->getClientIp() . self::$brokers[$broker]['secret']);
+        return md5('attach' . $token . $this->request->getClientIp() . $this->brokers[$broker]['secret']);
     }
 
     /**
      * Authenticate
+     *
+     * @return JsonResponse
      */
     public function login()
     {
         $this->sessionStart();
 
         if (!$this->request->get('username')) {
-            $this->failLogin("No user specified");
+            $response = $this->failLogin("No user specified");
+
+            return $response;
         }
         if (!$this->request->get('password')) {
-            $this->failLogin("No password specified");
+            $response = $this->failLogin("No password specified");
+
+            return $response;
         }
 
-        if (!$this->loginFormHandler->authenticateUser($this->request->get('username'), $this->request->get('password'), 'quest')) {
-            $this->failLogin("Incorrect credentials");
-        }
+        if (!$this->loginFormHandler->authenticateUser($this->request->get('username'), $this->request->get('password'), $this->request->get('brandIdentifier'))) {
+            $response = $this->failLogin("Incorrect credentials");
 
-//        if (!isset(self::$users[$this->request->get('username')])
-//            || self::$users[$this->request->get('username')]['password'] != $this->request->get('password')) {
-//            $this->failLogin("Incorrect credentials");
-//        }
+            return $response;
+        }
 
         $this->session->set('user', $this->request->get('username'));
-        $this->info();
+
+        $userData = array(
+            'username'        => $this->request->get('username'),
+            'brandIdentifier' => $this->request->get('brandIdentifier')
+        );
+
+        return new JsonResponse(array('status' => 'success', 'data' => $userData));
     }
 
     /**
      * Log out
+     *
+     * @return JsonResponse
      */
     public function logout()
     {
         $this->sessionStart();
         $this->session->remove('user');
-        echo 1;
+
+        return new JsonResponse(array('status' => 'success'));
     }
 
 
     /**
      * Attach a user session to a broker session
+     *
+     * @return RedirectResponse
+     * @throws \Exception
      */
     public function attach()
     {
         $this->sessionStart();
 
         if (!$this->request->get('broker')) {
-            $this->fail("No broker specified");
+            $response = $this->fail("No broker specified");
+
+            return $response;
         }
         if (!$this->request->get('token')) {
-            $this->fail("No token specified");
+            $response = $this->fail("No token specified");
+
+            return $response;
         }
         if (!$this->request->get('checksum')
             || $this->generateAttachChecksum($this->request->get('broker'), $this->request->get('token')) != $this->request->get('checksum')) {
-            $this->fail("Invalid checksum");
+            $response = $this->fail("Invalid checksum");
+
+            return $response;
         }
+
+        $fileSystem = new Filesystem();
 
         if (!isset($this->linksPath)) {
             $link = "/sess_" . $this->generateSessionId($this->request->get('broker'), $this->request->get('token'));
@@ -256,70 +276,83 @@ class Server
                 $link = sys_get_temp_dir() . $link;
             }
 
-            if (!file_exists($link)) {
-                $attached = symlink('sess_' . $this->session->getId(), $link);
+            if (!$fileSystem->exists($link)) {
+                $fileSystem->symlink('sess_' . $this->session->getId(), $link);
+                $attached = true;
             }
             if (!$attached) {
-                trigger_error("Failed to attach; Symlink wasn't created.", E_USER_ERROR);
+                throw new \Exception("Failed to attach; Symlink wasn't created.", E_USER_ERROR);
             }
         } else {
             $link = "{$this->linksPath}/" . $this->generateSessionId($this->request->get('broker'), $this->request->get('token'));
-            if (!file_exists($link)) {
-                $attached = file_put_contents($link, $this->session->getId());
+            if (!$fileSystem->exists($link)) {
+                $attached = $fileSystem->dumpFile($link, $this->session->getId());
             }
             if (!$attached) {
-                trigger_error("Failed to attach; Link file wasn't created.", E_USER_ERROR);
+                throw new \Exception("Failed to attach; Link file wasn't created.", E_USER_ERROR);
             }
         }
 
         if ($this->request->get('redirect')) {
-            header("Location: " . $_REQUEST['redirect'], true, 307);
-            exit;
+            return new RedirectResponse($this->request->get('redirect'), 307);
         }
-
-        // Output an image specially for AJAX apps
-        header("Content-Type: image/png");
-        readfile("empty.png");
     }
 
     /**
-     * Ouput user information as XML.
+     * Output user information as XML.
      * Doesn't return e-mail address to brokers with security level < 2.
+     *
+     * @return JsonResponse
      */
     public function info()
     {
         $this->sessionStart();
         if (!$this->session->get('user')) {
-            $this->failLogin("Not logged in");
+            $response = $this->failLogin("Not logged in");
+
+            return $response;
         }
 
-        echo json_encode(self::$users[$this->session->get('user')]);
+        $userData = array(
+            'username'        => $this->session->get('user'),
+            'brandIdentifier' => $this->request->get('brandIdentifier')
+        );
+
+        return new JsonResponse($userData);
     }
 
 
     /**
-     * An error occured.
-     * I would normaly solve this by throwing an Exception and use an exception handler.
+     * An error occurred.
+     * I would normally solve this by throwing an Exception and use an exception handler.
      *
      * @param string $message
+     *
+     * @return JsonResponse
      */
     protected function fail($message)
     {
-        header("HTTP/1.1 406 Not Acceptable");
-        echo $message;
-        exit;
+        return new JsonResponse(array('status' => 'fail', 'message' => $message), 406);
     }
 
     /**
      * Login failure.
-     * I would normaly solve this by throwing a LoginException and use an exception handler.
+     * I would normally solve this by throwing a LoginException and use an exception handler.
      *
      * @param string $message
+     *
+     * @return JsonResponse
      */
     protected function failLogin($message)
     {
-        header("HTTP/1.1 401 Unauthorized");
-        echo $message;
-        exit;
+        return new JsonResponse(array('status' => 'fail', 'message' => $message), 401);
+    }
+
+    /**
+     * @param array $config
+     */
+    public function setConfig($config)
+    {
+        $this->brokers = $config['brokers'];
     }
 }

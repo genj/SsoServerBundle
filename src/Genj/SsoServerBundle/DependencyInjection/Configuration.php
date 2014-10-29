@@ -23,11 +23,13 @@ class Configuration implements ConfigurationInterface
 
         $rootNode
             ->children()
-            ->integerNode('kiosk_identifier')
-            ->info('The unique identifying name of the parent kiosk this site belongs to')
-            ->defaultValue('test')
-            ->cannotBeEmpty()
-            ->end()
+                ->arrayNode('brokers')
+                    ->prototype('array')
+                        ->children()
+                            ->scalarNode('secret')->isRequired()->end()
+                        ->end()
+                    ->end()
+                ->end()
             ->end();
 
         return $treeBuilder;

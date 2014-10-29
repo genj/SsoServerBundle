@@ -5,3 +5,5 @@ services:
         arguments:
             - @request
             - @webservice_user.login.form.handler
+            - @webservice_user.entity.user_repository
+            - %genj_sso_server%
