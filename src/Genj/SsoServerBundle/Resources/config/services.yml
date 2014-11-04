@@ -1,9 +1,11 @@
 services:
     genj_sso_server.server:
-        class: Genj\SsoServerBundle\Sso\Server
+        class: %genj_sso_server.sso_server_class%
         scope: request
         arguments:
             - @request
             - @webservice_user.login.form.handler
             - @webservice_user.entity.user_repository
             - %genj_sso_server%
+            - @security.context
+            - @security.authentication.manager

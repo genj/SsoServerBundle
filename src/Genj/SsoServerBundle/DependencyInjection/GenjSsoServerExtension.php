@@ -23,6 +23,7 @@ class GenjSsoServerExtension extends Extension
         $configuration          = new Configuration();
         $processedConfiguration = $this->processConfiguration($configuration, $configs);
         $container->setParameter('genj_sso_server', $processedConfiguration);
+        $container->setParameter('genj_sso_server.sso_server_class', $processedConfiguration['sso_server_class']);
 
         $loader = new Loader\YamlFileLoader($container, new FileLocator(__DIR__.'/../Resources/config'));
         $loader->load('services.yml');

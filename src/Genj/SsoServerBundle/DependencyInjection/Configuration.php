@@ -23,6 +23,8 @@ class Configuration implements ConfigurationInterface
 
         $rootNode
             ->children()
+                ->scalarNode('authentication_provider_key')->defaultValue('secured_area')->end()
+                ->scalarNode('sso_server_class')->defaultValue('Genj\SsoServerBundle\Sso\Server')->end()
                 ->arrayNode('brokers')
                     ->prototype('array')
                         ->children()

@@ -2,12 +2,17 @@
 
 namespace Genj\SsoServerBundle\Controller;
 
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Symfony\Bundle\FrameworkBundle\Controller\Controller;
+use Symfony\Bundle\SecurityBundle\Templating\Helper\SecurityHelper;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Genj\SsoServerBundle\Sso\Server;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Security\Core\Authentication\AuthenticationProviderManager;
+use Symfony\Component\Security\Core\SecurityContext;
+use Symfony\Component\Security\Http\Authentication\SimpleAuthenticationHandler;
 
 /**
  * Class SsoController
@@ -40,5 +45,10 @@ class SsoController extends Controller
         throw new NotFoundHttpException();
 
         return new Response('');
+    }
+
+    public function loginAction(Rquest $request)
+    {
+
     }
 }

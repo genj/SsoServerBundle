@@ -9,7 +9,9 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\NativeSessionStorage;
 use Symfony\Component\HttpFoundation\Session\Storage\PhpBridgeSessionStorage;
+use Symfony\Component\Security\Core\Authentication\AuthenticationManagerInterface;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
+use Symfony\Component\Security\Core\SecurityContextInterface;
 use Webservice\UserBundle\Entity\UserRepository;
 use Webservice\UserBundle\Form\Handler\LoginFormHandler;
 
@@ -49,6 +51,12 @@ class Server
     protected $broker = null;
 
     /**
+     * The provider key to use
+     * @var string
+     */
+    protected $authenticationProviderKey;
+
+    /**
      * @var Request
      */
     protected $request;
@@ -69,19 +77,36 @@ class Server
     protected $userRepository;
 
     /**
+     * @var SecurityContextInterface
+     */
+    protected $securityContext;
+
+    /**
+     * @var AuthenticationManagerInterface
+     */
+    protected $authenticationManager;
+
+    /**
      * Class constructor
      *
-     * @param Request           $request
-     * @param LoginFormHandler  $loginFormHandler
-     * @param UserRepository    $userRepository
+     * @param Request                        $request
+     * @param LoginFormHandler               $loginFormHandler
+     * @param UserRepository                 $userRepository
+     * @param SecurityContextInterface       $securityContext
+     * @param AuthenticationManagerInterface $authenticationManager
      */
-    public function __construct(Request $request, LoginFormHandler $loginFormHandler, UserRepository $userRepository, array $config)
+    public function __construct(Request $request, LoginFormHandler $loginFormHandler,
+                                UserRepository $userRepository, array $config,
+                                SecurityContextInterface $securityContext, AuthenticationManagerInterface $authenticationManager)
     {
         $this->request          = $request;
         $this->session          = $request->getSession();
 
         $this->userRepository   = $userRepository;
         $this->loginFormHandler = $loginFormHandler;
+
+        $this->securityContext       = $securityContext;
+        $this->authenticationManager = $authenticationManager;
 
         $this->setConfig($config);
 
@@ -209,11 +234,26 @@ class Server
             return $response;
         }
 
-        if (!$this->loginFormHandler->authenticateUser($this->request->get('username'), $this->request->get('password'), $this->request->get('brandIdentifier'))) {
+        $unauthenticatedToken = new UsernamePasswordToken($this->request->get('username'), $this->request->get('password'), $this->authenticationProviderKey);
+
+        try {
+            $authenticatedToken = $this
+                ->authenticationManager
+                ->authenticate($unauthenticatedToken);
+
+            $this->securityContext->setToken($authenticatedToken);
+        } catch (AuthenticationException $failed) {
+            // authentication failed
             $response = $this->failLogin("Incorrect credentials");
 
             return $response;
         }
+
+//        if (!$this->loginFormHandler->authenticateUser($this->request->get('username'), $this->request->get('password'), $this->request->get('brandIdentifier'))) {
+//            $response = $this->failLogin("Incorrect credentials");
+//
+//            return $response;
+//        }
 
         $this->session->set('user', $this->request->get('username'));
 
@@ -222,7 +262,9 @@ class Server
             'brandIdentifier' => $this->request->get('brandIdentifier')
         );
 
-        return new JsonResponse(array('status' => 'success', 'data' => $userData));
+        $status = array('code' => 200, 'message' => 'success');
+
+        return new JsonResponse(array('status' => $status, 'data' => $userData));
     }
 
     /**
@@ -235,7 +277,9 @@ class Server
         $this->sessionStart();
         $this->session->remove('user');
 
-        return new JsonResponse(array('status' => 'success'));
+        $status = array('code' => 200, 'message' => 'success');
+
+        return new JsonResponse(array('status' => $status));
     }
 
 
@@ -318,7 +362,9 @@ class Server
             'brandIdentifier' => $this->request->get('brandIdentifier')
         );
 
-        return new JsonResponse($userData);
+        $status = array('code' => 200, 'message' => 'success');
+
+        return new JsonResponse(array('status' => $status, 'data' => $userData));
     }
 
 
@@ -332,7 +378,9 @@ class Server
      */
     protected function fail($message)
     {
-        return new JsonResponse(array('status' => 'fail', 'message' => $message), 406);
+        $status = array('code' => 406, 'message' => 'fail');
+
+        return new JsonResponse(array('status' => $status, 'error' => $message), 406);
     }
 
     /**
@@ -345,7 +393,9 @@ class Server
      */
     protected function failLogin($message)
     {
-        return new JsonResponse(array('status' => 'fail', 'message' => $message), 401);
+        $status = array('code' => 401, 'message' => 'fail');
+
+        return new JsonResponse(array('status' => $status, 'error' => $message), 401);
     }
 
     /**
@@ -353,6 +403,7 @@ class Server
      */
     public function setConfig($config)
     {
-        $this->brokers = $config['brokers'];
+        $this->brokers                   = $config['brokers'];
+        $this->authenticationProviderKey = $config['authentication_provider_key'];
     }
 }
