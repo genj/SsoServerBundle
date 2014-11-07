@@ -22,33 +22,42 @@ use Symfony\Component\Security\Http\Authentication\SimpleAuthenticationHandler;
 class SsoController extends Controller
 {
     /**
-     * @param Request $request
-     *
-     * @throws \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
-     *
      * @return Response
      */
-    public function indexAction(Request $request)
+    public function loginAction()
     {
-        // Execute controller command
-        if ($request->get('cmd')) {
-            /**
-             * @var Server $server
-             */
-            $server = $this->get('genj_sso_server.server');
+        $server = $this->get('genj_sso_server.server');
 
-            $command = $request->get('cmd');
-
-            return $server->$command();
-        }
-
-        throw new NotFoundHttpException();
-
-        return new Response('');
+        return $server->login();
     }
 
-    public function loginAction(Rquest $request)
+    /**
+     * @return Response
+     */
+    public function logoutAction()
     {
+        $server = $this->get('genj_sso_server.server');
 
+        return $server->logout();
+    }
+
+    /**
+     * @return Response
+     */
+    public function infoAction()
+    {
+        $server = $this->get('genj_sso_server.server');
+
+        return $server->info();
+    }
+
+    /**
+     * @return Response
+     */
+    public function attachAction()
+    {
+        $server = $this->get('genj_sso_server.server');
+
+        return $server->attach();
     }
 }

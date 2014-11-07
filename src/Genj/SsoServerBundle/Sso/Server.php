@@ -2,6 +2,7 @@
 
 namespace Genj\SsoServerBundle\Sso;
 
+use Symfony\Component\BrowserKit\Cookie;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -87,6 +88,12 @@ class Server
     protected $authenticationManager;
 
     /**
+     * Cookies that need to be set at the next response
+     * @var array
+     */
+    protected $cookies = array();
+
+    /**
      * Class constructor
      *
      * @param Request                        $request
@@ -109,10 +116,6 @@ class Server
         $this->authenticationManager = $authenticationManager;
 
         $this->setConfig($config);
-
-        if (!function_exists('symlink')) {
-            $this->linksPath = sys_get_temp_dir();
-        }
     }
 
     /**
@@ -135,11 +138,13 @@ class Server
             && preg_match('/^SSO-(\w*+)-(\w*+)-([a-z0-9]*+)$/', $this->request->get($this->session->getName()), $matches)) {
             $sid = $this->request->get($this->session->getName());
 
-            if (isset($this->linksPath) && file_exists($this->linksPath . $sid)) {
-                $this->session->setId(file_get_contents($this->linksPath . $sid));
+            $fileSystem = new Filesystem();
+
+            if (isset($this->linksPath) && $fileSystem->exists($this->linksPath ."/". $sid)) {
+                $this->session->setId(file_get_contents($this->linksPath ."/". $sid));
                 $this->session->migrate();
 
-                setcookie($this->session->getName(), "", 1);
+                $this->cookies[] = new Cookie($this->session->getName(), "", 1);
             } else {
                 $this->session->start();
             }
@@ -249,22 +254,20 @@ class Server
             return $response;
         }
 
-//        if (!$this->loginFormHandler->authenticateUser($this->request->get('username'), $this->request->get('password'), $this->request->get('brandIdentifier'))) {
-//            $response = $this->failLogin("Incorrect credentials");
-//
-//            return $response;
-//        }
-
         $this->session->set('user', $this->request->get('username'));
 
         $userData = array(
-            'username'        => $this->request->get('username'),
-            'brandIdentifier' => $this->request->get('brandIdentifier')
+            'username'        => $this->request->get('username')
         );
 
         $status = array('code' => 200, 'message' => 'success');
 
-        return new JsonResponse(array('status' => $status, 'data' => $userData));
+        $response = new JsonResponse(array('status' => $status, 'data' => $userData));
+        foreach ($this->cookies as $cookie) {
+            $response->headers->setCookie($cookie);
+        }
+
+        return $response;
     }
 
     /**
@@ -279,7 +282,12 @@ class Server
 
         $status = array('code' => 200, 'message' => 'success');
 
-        return new JsonResponse(array('status' => $status));
+        $response = new JsonResponse(array('status' => $status));
+        foreach ($this->cookies as $cookie) {
+            $response->headers->setCookie($cookie);
+        }
+
+        return $response;
     }
 
 
@@ -311,34 +319,23 @@ class Server
         }
 
         $fileSystem = new Filesystem();
+        $link = $this->linksPath ."/" . $this->generateSessionId($this->request->get('broker'), $this->request->get('token'));
 
-        if (!isset($this->linksPath)) {
-            $link = "/sess_" . $this->generateSessionId($this->request->get('broker'), $this->request->get('token'));
-            if (session_save_path()) {
-                $link = session_save_path() . $link;
-            } else {
-                $link = sys_get_temp_dir() . $link;
-            }
-
-            if (!$fileSystem->exists($link)) {
-                $fileSystem->symlink('sess_' . $this->session->getId(), $link);
-                $attached = true;
-            }
-            if (!$attached) {
-                throw new \Exception("Failed to attach; Symlink wasn't created.", E_USER_ERROR);
-            }
-        } else {
-            $link = "{$this->linksPath}/" . $this->generateSessionId($this->request->get('broker'), $this->request->get('token'));
-            if (!$fileSystem->exists($link)) {
-                $attached = $fileSystem->dumpFile($link, $this->session->getId());
-            }
-            if (!$attached) {
-                throw new \Exception("Failed to attach; Link file wasn't created.", E_USER_ERROR);
-            }
+        if (!$fileSystem->exists($link)) {
+            $fileSystem->dumpFile($link, $this->session->getId());
+            $attached = true;
+        }
+        if (!$attached) {
+            throw new \Exception("Failed to attach; Link file wasn't created.", E_USER_ERROR);
         }
 
         if ($this->request->get('redirect')) {
-            return new RedirectResponse($this->request->get('redirect'), 307);
+            $response = new RedirectResponse($this->request->get('redirect'), 307);
+            foreach ($this->cookies as $cookie) {
+                $response->headers->setCookie($cookie);
+            }
+
+            return $response;
         }
     }
 
@@ -358,8 +355,7 @@ class Server
         }
 
         $userData = array(
-            'username'        => $this->session->get('user'),
-            'brandIdentifier' => $this->request->get('brandIdentifier')
+            'username'        => $this->session->get('user')
         );
 
         $status = array('code' => 200, 'message' => 'success');
@@ -405,5 +401,6 @@ class Server
     {
         $this->brokers                   = $config['brokers'];
         $this->authenticationProviderKey = $config['authentication_provider_key'];
+        $this->linksPath                 = $config['attach_file_path'];
     }
 }
