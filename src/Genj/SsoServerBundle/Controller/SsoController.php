@@ -60,4 +60,29 @@ class SsoController extends Controller
 
         return $server->attach();
     }
+
+    /**
+     * @param Request $request
+     *
+     * @return JsonResponse
+     */
+    public function registerAction(Request $request)
+    {
+        $response = array(
+            'status' => 200,
+            'data' => $request->request->all()
+        );
+
+        return new JsonResponse($response);
+    }
+
+    /**
+     * @return mixed
+     */
+    public function validateAuthTokenAction()
+    {
+        $server = $this->get('genj_sso_server.server');
+
+        return $server->validateAuthToken();
+    }
 }

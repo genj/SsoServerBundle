@@ -17,6 +17,16 @@ Add the bundle to your composer.json
 }
 ```
 
+Add the bundle to your AppKernel.php
+
+```
+public function registerBundles() {
+        $bundles = array(
+            ...
+            new Genj\SsoServerBundle\GenjSsoServerBundle(),
+        );
+```
+
 Add the following pararmeters to your config.yml
 
 ```
@@ -29,9 +39,21 @@ genj_sso_server:
 Add the following routes to your routing.yml
 
 ```
-genj_sso_server_command:
-    pattern:  /sso/command/{brandIdentifier}
-    defaults: { _controller: GenjSsoServerBundle:Sso:index }
+genj_sso_server_command_attach:
+    pattern:  /sso/command/attach
+    defaults: { _controller: GenjSsoServerBundle:Sso:attach }
+
+genj_sso_server_command_info:
+    pattern:  /sso/command/info
+    defaults: { _controller: GenjSsoServerBundle:Sso:info }
+
+genj_sso_server_command_login:
+    pattern:  /sso/command/login
+    defaults: { _controller: GenjSsoServerBundle:Sso:login }
+
+genj_sso_server_command_logout:
+    pattern:  /sso/command/logout
+    defaults: { _controller: GenjSsoServerBundle:Sso:logout }
 ```
 
 

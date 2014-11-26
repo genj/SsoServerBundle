@@ -2,7 +2,7 @@
 
 namespace Genj\SsoServerBundle\Sso;
 
-use Symfony\Component\BrowserKit\Cookie;
+use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -254,10 +254,19 @@ class Server
             return $response;
         }
 
+        $this->securityContext->getToken()->eraseCredentials();
+
         $this->session->set('user', $this->request->get('username'));
+        $this->session->set('serializedToken', $this->securityContext->getToken()->serialize());
+
+        $generator = new SecureRandom();
+        $authToken = $generator->nextBytes(16);
+        $this->session->set('authToken', $authToken);
 
         $userData = array(
-            'username'        => $this->request->get('username')
+            'username'        => $this->request->get('username'),
+            'serializedToken' => $this->securityContext->getToken()->serialize(),
+            'authToken'       => $authToken
         );
 
         $status = array('code' => 200, 'message' => 'success');
@@ -279,6 +288,8 @@ class Server
     {
         $this->sessionStart();
         $this->session->remove('user');
+        $this->session->remove('serializedToken');
+        $this->session->remove('authToken');
 
         $status = array('code' => 200, 'message' => 'success');
 
@@ -355,7 +366,40 @@ class Server
         }
 
         $userData = array(
-            'username'        => $this->session->get('user')
+            'username'        => $this->session->get('user'),
+            'serializedToken' => $this->session->get('serializedToken'),
+            'authToken'       => $this->session->get('authToken')
+        );
+
+        $status = array('code' => 200, 'message' => 'success');
+
+        return new JsonResponse(array('status' => $status, 'data' => $userData));
+    }
+
+    /**
+     * Validates the Auth token given by the client
+     *
+     * @return JsonResponse
+     */
+    public function validateAuthToken()
+    {
+        $this->sessionStart();
+        if (!$this->session->get('user')) {
+            $response = $this->failLogin("Not logged in");
+
+            return $response;
+        }
+
+        if ($this->request->get('ssoAuthToken') != $this->session->get('authToken')) {
+            $response = $this->failLogin("Invalid Auth Token");
+
+            return $response;
+        }
+
+        $userData = array(
+            'username'        => $this->session->get('user'),
+            'serializedToken' => $this->session->get('serializedToken'),
+            'authToken'       => $this->session->get('authToken')
         );
 
         $status = array('code' => 200, 'message' => 'success');
